@@ -1,0 +1,7 @@
+<launch>
+  <arg name="map_file" default="$(find cyborg_nav)/maps/glassgarden.map" />
+
+  <node pkg="cyborg_nav" name="load_map" type="load_map.py" output="screen">
+    <param name="filename" value="$(arg map_file)" />
+  </node>
+</launch>
