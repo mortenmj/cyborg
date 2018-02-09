@@ -12,7 +12,9 @@
   <buildtool_depend>catkin</buildtool_depend>
 
   <!-- Dependencies needed after this package is compiled. -->
+  <run_depend>cyborg_bt</run_depend>
   <run_depend>cyborg_nav</run_depend>
+  <run_depend>cyborg_types</run_depend>
 
   <export>
     <metapackage/>
