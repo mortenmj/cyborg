@@ -3,16 +3,11 @@
 from __future__ import print_function
 
 import rospy
-from collections import namedtuple
 from cyborg_nav.srv import DistanceToGoal, DistanceToGoalResponse
-from geometry_msgs.msg import Pose
+from cyborg_types import Path, Pose
 from rosarnl.srv import MakePlan
-from scipy.spatial import distance
 
 NAME = 'distance_to_goal_server'
-
-Point = namedtuple('Point', ['x', 'y', 'z'])
-Quaternion = namedtuple('Quaternion', ['x', 'y', 'z', 'w'])
 
 
 class DistanceToGoalHandler():
@@ -31,37 +26,15 @@ class DistanceToGoalHandler():
 
         rospy.spin()
 
-    # Return a geometry_msgs.Point as a named tuple
-    def __point(self, p):
-        return Point(p.x, p.y, p.z)
-
-    # Return a geometry_msgs.Quaternion as a named tuple
-    def __quaternion(self, q):
-        return Quaternion(q.x, q.y, q.z, q.w)
-
-    # Get the distance between two Poses
-    def __dist(self, a, b):
-        p1 = a.position
-        p2 = b.position
-        return distance.euclidean(self.__point(p1), self.__point(p2))
-
-    # Get the length of a path
-    def __get_length(self, path):
-        # Here, we create a pairwise list of Poses, compute the distances
-        # between them, and sum all the distances
-        return sum(map(lambda p: self.__dist(p[0], p[1]), zip(path, path[1:])))
-
     def __distance_cb(self, data):
         # Create a Pose message to validate our input data
-        position = self.__point(data.goal.position)
-        orientation = self.__quaternion(data.goal.orientation)
-        goal = Pose(position=position, orientation=orientation)
+        goal = Pose.from_pose(data.goal)
 
         # Get a path to the given goal
-        path = self._plan_svc(goal).path
+        path = Path.from_posearray(self._plan_svc(goal).path)
 
         # Calculate distance if a path was found, or return inf
-        distance = self.__get_length(path) if path else float('inf')
+        distance = path.length if path else float('inf')
 
         return DistanceToGoalResponse(distance=distance)
 
