@@ -2,10 +2,11 @@
 
 import b3
 import json
-import pydot as pd
 import rospy
 from std_msgs.msg import String
 
+from cyborg_bt.msg import BehaviorTreeNodes
+from cyborg_bt.srv import BehaviorTree, BehaviorTreeResponse
 from cyborg_bt_nodes.actions import MoveTo
 
 
@@ -18,22 +19,37 @@ class BehaviorTreeManager():
 
         rospy.loginfo('Initializing: %s' % NAME)
 
-        target = None
-        blackboard = b3.Blackboard()
         names = {'MoveTo': MoveTo}
 
-        tree_file = rospy.get_param('~tree_file')
-        rospy.loginfo('Loading project from %s' % tree_file)
-        with open(tree_file) as f:
+        with open(rospy.get_param('~tree_file')) as f:
+            rospy.loginfo('Loading project from %s' % f.name)
             data = json.load(f)
 
-        trees = self.load_project(data, names)
-        root_tree = trees[data['selectedTree']]
+        self.root = self.load_project(data, names)
+        self.target = None
+        self.blackboard = b3.Blackboard()
+        self.open_nodes = list()
 
-        rospy.loginfo('Running %s' % root_tree)
+        rospy.loginfo('Running %s' % self.root)
 
-        if root_tree is not None:
-            self.run(root_tree, target, blackboard)
+        if self.root is not None:
+            self.run()
+
+    def __str__(self):
+        if not hasattr(self, '_dot_representation'):
+            rospy.loginfo("Creating dot repr")
+            self._dot_representation = self.to_graphviz(self.root).to_string()
+
+        return self._dot_representation
+
+    def bt_cb(self, data):
+        """
+        Return DOT representation of the behavior tree
+        """
+        response = BehaviorTreeResponse()
+        response.tree = str(self)
+
+        return response
 
     def load_project(self, data, names=None):
         names = names or {}
@@ -106,19 +122,40 @@ class BehaviorTreeManager():
             # Connect the root node for the tree
             trees[tree['id']].root = tmpnodes[tree['root']]
 
-        return trees
+        root_tree = trees[data['selectedTree']]
 
-    def create_graph(self, tree):
+        return root_tree
+
+    def to_networkx(self, tree):
+        """
+        Generate a networkx graph.
+
+        Parameters
+        ----------
+        tree: the behavior tree
+
+        Returns
+        -------
+        networkx.DiGraph: graph
+        """
+        import networkx as nx
+
+        return nx.to_networkx_graph(self.to_graphviz(tree))
+
+    def to_graphviz(self, tree):
         """
         Generate a pydot graph.
 
-        Args:
-            tree: the behavior tree
-            level: collapses trees at or below this level
+        Parameters
+        ----------
+        tree: the behavior tree
 
-        Returns:
-            pydot.Dot: graph
+        Returns
+        -------
+        pydot.Dot: graph
         """
+        import pydot as pd
+
         def process_node(graph, node):
             if isinstance(node, b3.Composite):
                 for c in node.children:
@@ -143,14 +180,23 @@ class BehaviorTreeManager():
 
         return graph
 
-    def run(self, tree, target, blackboard):
-        pub = rospy.Publisher('cyborg_bt/tree', String, queue_size=10)
+    def run(self):
+        pub_name = '/cyborg/bt/behavior_tree_updates'
+        pub = rospy.Publisher(pub_name, BehaviorTreeNodes, latch=True, queue_size=1)
+
+        srv_name = 'cyborg/bt/get_behavior_tree'
+        rospy.Service(srv_name, BehaviorTree, self.bt_cb)
+
         rate = rospy.Rate(10)
 
         while not rospy.is_shutdown():
-            tree.tick(target, blackboard)
-            G = self.create_graph(tree)
-            pub.publish(G.to_string())
+            open_nodes = self.blackboard.get('open_nodes', self.root.id)
+
+            if set(open_nodes) != set(self.open_nodes):
+                self.open_nodes = open_nodes
+                pub.publish([node.id for node in self.open_nodes])
+
+            self.root.tick(self.target, self.blackboard)
             rate.sleep()
 
 

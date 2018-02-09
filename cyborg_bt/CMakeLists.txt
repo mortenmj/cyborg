@@ -4,13 +4,30 @@ project(cyborg_bt)
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     rospy
-    geometry_msgs
+    std_msgs
+    message_generation
+)
+
+add_message_files(
+    DIRECTORY msg
+    FILES
+    BehaviorTreeNodes.msg
+)
+
+add_service_files(
+    DIRECTORY srv
+    FILES
+    BehaviorTree.srv
+)
+
+catkin_python_setup()
+
+generate_messages(
+    DEPENDENCIES
     std_msgs
 )
 
 catkin_package()
-
-catkin_python_setup()
 
 catkin_install_python(
     PROGRAMS
