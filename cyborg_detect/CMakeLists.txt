@@ -9,7 +9,6 @@ find_package(catkin REQUIRED COMPONENTS
     sensor_msgs
     geometry_msgs
     std_msgs
-    ros_dnn_msgs
     dynamic_reconfigure
     message_generation
 )
