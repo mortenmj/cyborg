@@ -3,14 +3,11 @@
 from __future__ import print_function
 
 import rospy
-from cyborg_nav.srv import AvailableGoals, DistanceToGoal
-from cyborg_navigation.srv import ClosestGoal, ClosestGoalResponse
-from cyborg_types import Point, Quaternion, Pose
+from cyborg_msgs.srv import DistanceToGoal
+from cyborg_msgs.srv import ClosestGoal, ClosestGoalResponse
 from cyborg_util import Locations
 
 NAME = 'closest_goal_server'
-
-
 
 
 class ClosestGoalHandler():

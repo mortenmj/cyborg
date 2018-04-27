@@ -5,8 +5,8 @@ import rospy
 from collections import namedtuple
 from itertools import ifilter, imap
 from geometry_msgs.msg import Pose2D
-from cyborg_nav.msg import GoalWithHeading
-from cyborg_nav.srv import AvailableGoals, AvailableGoalsResponse
+from cyborg_msgs.msg import GoalWithHeading
+from cyborg_msgs.srv import AvailableGoals, AvailableGoalsResponse
 
 NAME = 'available_goals_server'
 

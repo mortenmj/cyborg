@@ -15,11 +15,13 @@
   <build_depend>rospy</build_depend>
   <build_depend>geometry_msgs</build_depend>
   <build_depend>std_msgs</build_depend>
+  <build_depend>cyborg_msgs</build_depend>
   <build_depend>rosarnl</build_depend>
 
   <!-- Dependencies needed after this package is compiled. -->
   <run_depend>rospy</run_depend>
   <run_depend>geometry_msgs</run_depend>
   <run_depend>std_msgs</run_depend>
+  <run_depend>cyborg_msgs</run_depend>
   <run_depend>rosarnl</run_depend>
 </package>

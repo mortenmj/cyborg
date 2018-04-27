@@ -6,25 +6,7 @@ find_package(catkin REQUIRED COMPONENTS
     rospy
     geometry_msgs
     std_msgs
-    message_generation)
-
-add_message_files(
-    DIRECTORY msg
-    FILES GoalWithHeading.msg
-)
-
-add_service_files(
-    DIRECTORY srv
-    FILES
-    AvailableGoals.srv
-    ClosestGoal.srv
-    DistanceToGoal.srv
-)
-
-generate_messages(
-    DEPENDENCIES
-    std_msgs
-    geometry_msgs
+    cyborg_msgs
 )
 
 catkin_package()

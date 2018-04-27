@@ -3,11 +3,11 @@
 import b3
 import json
 import rospy
-from std_msgs.msg import String
 
-from cyborg_bt.msg import BehaviorTreeNodes
-from cyborg_bt.srv import BehaviorTree, BehaviorTreeResponse
+from cyborg_msgs.msg import BehaviorTreeNodes
+from cyborg_msgs.srv import BehaviorTree, BehaviorTreeResponse
 from cyborg_bt_nodes.actions import MoveTo
+import networkx as nx
 
 
 NAME = 'behavior_tree_manager'
@@ -21,33 +21,54 @@ class BehaviorTreeManager():
 
         names = {'MoveTo': MoveTo}
 
-        with open(rospy.get_param('~tree_file')) as f:
+        with open('/home/mortenmj/.ros/project.json') as f:
             rospy.loginfo('Loading project from %s' % f.name)
             data = json.load(f)
 
         self.root = self.load_project(data, names)
+        if not self.root:
+            raise AttributeError
+
         self.target = None
         self.blackboard = b3.Blackboard()
         self.open_nodes = list()
 
+        # Set known locations
+        locations = {
+                'el5':         [-33.768, -33.545, 0],
+                'waitingarea': [-33.581,  10.627, 0],
+                'info':        [-33.505,  1.139, 0],
+                'cafeteria':   [-33.075, -55.776, 0],
+                'stairs':      [-31.494, -71.056, 0],
+                'el6':         [-30.397, -12.826, 0],
+                'hallway':     [-30.251, -79.089, 0],
+                'home':        [-29.552,  8.747, 0],
+                'elevator1':   [-29.414, -50.281, 0],
+                'underbridge': [-28.161, -63.308, 0],
+                'elevator2':   [-21.912, -42.451, 0],
+                'entrance':    [-18.422,  6.518, 0],
+                'entrance2':   [-18.246, -65.898, 0]
+        }
+
+        self.blackboard.set('locations', locations)
+
         rospy.loginfo('Running %s' % self.root)
 
-        if self.root is not None:
-            self.run()
-
     def __str__(self):
-        if not hasattr(self, '_dot_representation'):
+        if not hasattr(self, '_dot'):
             rospy.loginfo("Creating dot repr")
-            self._dot_representation = self.to_graphviz(self.root).to_string()
-
-        return self._dot_representation
+            self._dot = self.to_pydot(self.root).to_string()
+        return self._dot
 
     def bt_cb(self, data):
         """
         Return DOT representation of the behavior tree
         """
+        G = self.to_networkx(self.root)
+        tree = json.dumps(G)
+
         response = BehaviorTreeResponse()
-        response.tree = str(self)
+        response.tree = tree
 
         return response
 
@@ -138,11 +159,34 @@ class BehaviorTreeManager():
         -------
         networkx.DiGraph: graph
         """
-        import networkx as nx
+        from networkx.readwrite import json_graph
 
-        return nx.to_networkx_graph(self.to_graphviz(tree))
+        def process_tree(G, tree):
+            root = tree.root
+            G.set_name = tree.id
+            G.add_node(root.id, label=str(root))
+            process_node(G, root)
 
-    def to_graphviz(self, tree):
+        def process_node(G, node):
+            if isinstance(node, b3.Composite):
+                for c in node.children:
+                    if isinstance(c, b3.BehaviorTree):
+                        c = c.root
+
+                    rospy.loginfo('category: %s' % c.category)
+                    G.add_node(
+                            c.id,
+                            label=str(c),
+                            category=str(c.category))
+                    G.add_edge(node.id, c.id)
+                    process_node(G, c)
+
+        G = nx.DiGraph()
+        process_tree(G, tree)
+
+        return json_graph.tree_data(G, root=tree.root.id)
+
+    def to_pydot(self, tree):
         """
         Generate a pydot graph.
 
@@ -154,13 +198,19 @@ class BehaviorTreeManager():
         -------
         pydot.Dot: graph
         """
-        import pydot as pd
+        import pydot
+
+        def process_tree(graph, tree):
+            root = tree.root
+            graph.set_name = tree.title
+            graph.add_node(root.graph_node)
+            process_node(graph, root)
 
         def process_node(graph, node):
             if isinstance(node, b3.Composite):
                 for c in node.children:
                     if isinstance(c, b3.BehaviorTree):
-                        subgraph = pd.Subgraph(c.title)
+                        subgraph = pydot.Subgraph(c.title)
                         graph.add_subgraph(subgraph)
                         graph.add_edge(node.graph_edge(c.root))
                         process_tree(subgraph, c)
@@ -169,13 +219,7 @@ class BehaviorTreeManager():
                         graph.add_edge(node.graph_edge(c))
                         process_node(graph, c)
 
-        def process_tree(graph, tree):
-            root = tree.root
-            graph.set_name = tree.title
-            graph.add_node(root.graph_node)
-            process_node(graph, root)
-
-        graph = pd.Dot(graph_type='digraph')
+        graph = pydot.Dot(graph_type='digraph')
         process_tree(graph, tree)
 
         return graph
@@ -201,5 +245,5 @@ class BehaviorTreeManager():
 
 
 if __name__ == "__main__":
-    rospy.set_param('~tree_file', '/home/mortenmj/.ros/project.json')
-    BehaviorTreeManager()
+    bt = BehaviorTreeManager()
+    bt.run()

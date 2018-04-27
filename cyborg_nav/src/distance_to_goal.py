@@ -3,7 +3,7 @@
 from __future__ import print_function
 
 import rospy
-from cyborg_nav.srv import DistanceToGoal, DistanceToGoalResponse
+from cyborg_msgs.srv import DistanceToGoal, DistanceToGoalResponse
 from cyborg_types import Path, Pose
 from rosarnl.srv import MakePlan
 
