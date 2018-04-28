@@ -4,8 +4,7 @@ import b3
 import json
 import rospy
 
-from cyborg_msgs.msg import BehaviorTreeNodes
-from cyborg_msgs.srv import BehaviorTree, BehaviorTreeResponse
+from cyborg_msgs.msg import BehaviorTree, BehaviorTreeNodes
 from cyborg_bt_nodes.actions import MoveTo
 import networkx as nx
 
@@ -19,15 +18,24 @@ class BehaviorTreeManager():
 
         rospy.loginfo('Initializing: %s' % NAME)
 
+        bt_pub_name = '/cyborg/bt/behavior_tree'
+        self.bt_pub = rospy.Publisher(bt_pub_name, BehaviorTree, latch=True, queue_size=1)
+
+        bt_update_pub_name = '/cyborg/bt/behavior_tree_updates'
+        self.bt_update_pub = rospy.Publisher(bt_update_pub_name, BehaviorTreeNodes, latch=True, queue_size=1)
+
         names = {'MoveTo': MoveTo}
 
         with open('/home/mortenmj/.ros/project.json') as f:
             rospy.loginfo('Loading project from %s' % f.name)
             data = json.load(f)
 
-        self.root = self.load_project(data, names)
+        self.root = self._load_project(data, names)
         if not self.root:
             raise AttributeError
+
+        # Publish Behavior Tree structure
+        self._publish_bt(self.root)
 
         self.target = None
         self.blackboard = b3.Blackboard()
@@ -57,22 +65,28 @@ class BehaviorTreeManager():
     def __str__(self):
         if not hasattr(self, '_dot'):
             rospy.loginfo("Creating dot repr")
-            self._dot = self.to_pydot(self.root).to_string()
+            self._dot = self._to_pydot(self.root).to_string()
         return self._dot
 
-    def bt_cb(self, data):
+    def _publish_bt(self, data):
         """
         Return DOT representation of the behavior tree
         """
-        G = self.to_networkx(self.root)
+        G = self._to_networkx(data)
         tree = json.dumps(G)
 
-        response = BehaviorTreeResponse()
+        response = BehaviorTree()
         response.tree = tree
 
-        return response
+        self.bt_pub.publish(response)
 
-    def load_project(self, data, names=None):
+    def _publish_bt_update(self, data):
+        response = BehaviorTreeNodes()
+        response.ids = data
+
+        self.bt_update_pub.publish(response)
+
+    def _load_project(self, data, names=None):
         names = names or {}
         trees = {}
 
@@ -147,7 +161,7 @@ class BehaviorTreeManager():
 
         return root_tree
 
-    def to_networkx(self, tree):
+    def _to_networkx(self, tree):
         """
         Generate a networkx graph.
 
@@ -186,7 +200,7 @@ class BehaviorTreeManager():
 
         return json_graph.tree_data(G, root=tree.root.id)
 
-    def to_pydot(self, tree):
+    def _to_pydot(self, tree):
         """
         Generate a pydot graph.
 
@@ -225,12 +239,6 @@ class BehaviorTreeManager():
         return graph
 
     def run(self):
-        pub_name = '/cyborg/bt/behavior_tree_updates'
-        pub = rospy.Publisher(pub_name, BehaviorTreeNodes, latch=True, queue_size=1)
-
-        srv_name = 'cyborg/bt/get_behavior_tree'
-        rospy.Service(srv_name, BehaviorTree, self.bt_cb)
-
         rate = rospy.Rate(10)
 
         while not rospy.is_shutdown():
@@ -238,7 +246,7 @@ class BehaviorTreeManager():
 
             if set(open_nodes) != set(self.open_nodes):
                 self.open_nodes = open_nodes
-                pub.publish([node.id for node in self.open_nodes])
+                self._publish_bt_update([node.id for node in self.open_nodes])
 
             self.root.tick(self.target, self.blackboard)
             rate.sleep()

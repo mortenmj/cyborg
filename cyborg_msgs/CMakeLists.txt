@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
     DIRECTORY msg
     FILES
+    BehaviorTree.msg
     BehaviorTreeNodes.msg
     GoalWithHeading.msg
 )
@@ -20,7 +21,6 @@ add_service_files(
     DIRECTORY srv
     FILES
     AvailableGoals.srv
-    BehaviorTree.srv
     ClosestGoal.srv
     DistanceToGoal.srv
 )
