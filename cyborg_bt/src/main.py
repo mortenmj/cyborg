@@ -4,8 +4,11 @@ import b3
 import json
 import rospy
 
+from collections import OrderedDict
 from cyborg_msgs.msg import BehaviorTree, BehaviorTreeNodes
 from cyborg_bt_nodes.actions import MoveTo
+from std_msgs.msg import Bool
+from std_srvs.srv import Trigger, TriggerResponse
 import networkx as nx
 
 
@@ -13,7 +16,7 @@ NAME = 'behavior_tree_manager'
 
 
 class BehaviorTreeManager():
-    def __init__(self):
+    def __init__(self, start_running=False):
         rospy.init_node(NAME)
 
         rospy.loginfo('Initializing: %s' % NAME)
@@ -24,11 +27,22 @@ class BehaviorTreeManager():
         bt_update_pub_name = '/cyborg/bt/behavior_tree_updates'
         self.bt_update_pub = rospy.Publisher(bt_update_pub_name, BehaviorTreeNodes, latch=True, queue_size=1)
 
+        bt_enabled_pub_name = '/cyborg/bt/enabled'
+        self.bt_enabled_pub = rospy.Publisher(bt_enabled_pub_name, Bool, latch=True, queue_size=1)
+
+        self.enabled = True
+
+        bt_enable_srv_name = '/cyborg/bt/enable'
+        rospy.Service(bt_enable_srv_name, Trigger, self._enable_cb)
+
+        bt_disable_srv_name = '/cyborg/bt/disable'
+        rospy.Service(bt_disable_srv_name, Trigger, self._disable_cb)
+
         names = {'MoveTo': MoveTo}
 
         with open('/home/mortenmj/.ros/project.json') as f:
             rospy.loginfo('Loading project from %s' % f.name)
-            data = json.load(f)
+            data = json.load(f, object_pairs_hook=OrderedDict)
 
         self.root = self._load_project(data, names)
         if not self.root:
@@ -39,7 +53,7 @@ class BehaviorTreeManager():
 
         self.target = None
         self.blackboard = b3.Blackboard()
-        self.open_nodes = list()
+        self._prev_open_nodes = list()
 
         # Set known locations
         locations = {
@@ -62,29 +76,54 @@ class BehaviorTreeManager():
 
         rospy.loginfo('Running %s' % self.root)
 
+        self.enabled = start_running
+        if start_running:
+            self._publish_bt_status()
+            self.run()
+
     def __str__(self):
         if not hasattr(self, '_dot'):
             rospy.loginfo("Creating dot repr")
             self._dot = self._to_pydot(self.root).to_string()
         return self._dot
 
+    def _enable_cb(self, msg):
+        rospy.loginfo("Behavior tree enabled")
+
+        self.enabled = True
+        self._publish_bt_status()
+        return TriggerResponse(success=1, message="enabled")
+
+    def _disable_cb(self, msg):
+        rospy.loginfo("Behavior tree disabled")
+
+        self.enabled = False
+        self._publish_bt_status()
+        return TriggerResponse(success=1, message="disabled")
+
     def _publish_bt(self, data):
         """
-        Return DOT representation of the behavior tree
+        Return JSON representation of the behavior tree
         """
         G = self._to_networkx(data)
         tree = json.dumps(G)
 
-        response = BehaviorTree()
-        response.tree = tree
+        msg = BehaviorTree(tree=tree)
+        self.bt_pub.publish(msg)
 
-        self.bt_pub.publish(response)
+    def _publish_bt_status(self):
+        """
+        Return enabled status of the behavior tree
+        """
+        msg = Bool(data=self.enabled)
+        self.bt_enabled_pub.publish(msg)
 
     def _publish_bt_update(self, data):
-        response = BehaviorTreeNodes()
-        response.ids = data
-
-        self.bt_update_pub.publish(response)
+        """
+        Return list of active nodes in the behavior tree
+        """
+        msg = BehaviorTreeNodes(ids=data)
+        self.bt_update_pub.publish(msg)
 
     def _load_project(self, data, names=None):
         names = names or {}
@@ -175,30 +214,31 @@ class BehaviorTreeManager():
         """
         from networkx.readwrite import json_graph
 
-        def process_tree(G, tree):
-            root = tree.root
-            G.set_name = tree.id
-            G.add_node(root.id, label=str(root))
-            process_node(G, root)
+        def process_tree(G, tree, depth=0):
+            G.add_node(tree.id, depth=depth, label=str(tree), category=str(tree.category))
+            G.add_node(tree.root.id, depth=depth+1, label=str(tree.root), category=str(tree.root.category))
+            G.add_edge(tree.id, tree.root.id)
 
-        def process_node(G, node):
+            process_node(G, tree.root, depth=depth+1)
+
+        def process_node(G, node, depth=0):
+            if isinstance(node, b3.BehaviorTree):
+                process_tree(G, node, depth=depth)
+
             if isinstance(node, b3.Composite):
                 for c in node.children:
-                    if isinstance(c, b3.BehaviorTree):
-                        c = c.root
-
-                    rospy.loginfo('category: %s' % c.category)
-                    G.add_node(
-                            c.id,
-                            label=str(c),
-                            category=str(c.category))
+                    G.add_node(c.id, depth=depth, label=str(c), category=str(c.category))
                     G.add_edge(node.id, c.id)
-                    process_node(G, c)
+                    process_node(G, c, depth=depth)
 
-        G = nx.DiGraph()
+        G = nx.OrderedDiGraph()
+        G.set_name = tree.id
+
         process_tree(G, tree)
 
-        return json_graph.tree_data(G, root=tree.root.id)
+        nx.drawing.nx_agraph.write_dot(G, '/home/mortenmj/tree.dot')
+
+        return json_graph.tree_data(G, root=tree.id)
 
     def _to_pydot(self, tree):
         """
@@ -236,16 +276,34 @@ class BehaviorTreeManager():
         graph = pydot.Dot(graph_type='digraph')
         process_tree(graph, tree)
 
+        graph.write_png('/home/mortenmj/test.png')
+
         return graph
+
+    @property
+    def open_nodes(self):
+        nodes = []
+        for node in self._prev_open_nodes:
+            nodes.append(node)
+
+            # Check if there are any behavior trees that are active as well
+            if isinstance(node, b3.Composite):
+                for child in node.children:
+                    if isinstance(child, b3.BehaviorTree) and child.root in self._prev_open_nodes:
+                        nodes.append(child)
+        return nodes
 
     def run(self):
         rate = rospy.Rate(10)
 
         while not rospy.is_shutdown():
+            while not self.enabled:
+                rate.sleep()
+
             open_nodes = self.blackboard.get('open_nodes', self.root.id)
 
-            if set(open_nodes) != set(self.open_nodes):
-                self.open_nodes = open_nodes
+            if set(open_nodes) != set(self._prev_open_nodes):
+                self._prev_open_nodes = open_nodes
                 self._publish_bt_update([node.id for node in self.open_nodes])
 
             self.root.tick(self.target, self.blackboard)
@@ -253,5 +311,4 @@ class BehaviorTreeManager():
 
 
 if __name__ == "__main__":
-    bt = BehaviorTreeManager()
-    bt.run()
+    bt = BehaviorTreeManager(start_running=True)
