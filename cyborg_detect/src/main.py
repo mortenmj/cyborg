@@ -29,6 +29,7 @@ class Pred(object):
         self.distance = distance
 
     def draw(self, frame):
+        """ Draw the prediction on the provided frame """
         left, right, top, bottom = self.box['left'], self.box['right'], self.box['top'], self.box['bottom']
         text = '{}: {:.2f} ({:.2f} m)'.format(self.label, self.confidence, self.distance)
 
@@ -43,6 +44,7 @@ class Pred(object):
         cv.rectangle(frame, (left, top), (right, bottom), (0, 255, 0))
 
     def to_msg(self):
+        """ Convert the Prediction to an ROS message """
         msg = Prediction()
         prediction.label = self.label
         prediction.confidence = self.confidence
@@ -57,7 +59,8 @@ class Pred(object):
 
 
 class PredictionContainer(object):
-    def __init__(self, data, depth=None):
+    def __init__(self, image_header, data, depth=None):
+        self.image_header = image_header
         self.predictions = []
 
         for res in data:
@@ -84,11 +87,16 @@ class PredictionContainer(object):
         return distance
 
     def draw(self, frame):
+        """ Draw all predictions on the provided frame """
         for prediction in self.predictions:
             prediction.draw(frame)
 
     def to_msg(self):
+        """ Convert all predictions to an ROS message """
         msg = Predictions()
+        msg.header = Header()
+        msg.header.stamp = rospy.Time.now()
+        msg.image_header = self.image_header
         msg.predictions = [prediction.to_msg() for prediction in self.predictions]
 
         return msg
@@ -154,7 +162,7 @@ class Detector(object):
         frame = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding="passthrough")
         depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
 
-        predictions = PredictionContainer(output, depth)
+        predictions = PredictionContainer(output, image_msg.header, depth)
 
         if det_conns:
             predictions.draw(frame)
