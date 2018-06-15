@@ -8,7 +8,7 @@ from collections import OrderedDict
 from cyborg_msgs.msg import BehaviorTree, BehaviorTreeNodes
 from cyborg_bt_nodes.actions import MoveTo
 from std_msgs.msg import Bool
-from std_srvs.srv import Trigger, TriggerResponse
+from std_srvs.srv import SetBool, SetBoolResponse
 import networkx as nx
 
 
@@ -33,10 +33,7 @@ class BehaviorTreeManager():
         self.enabled = True
 
         bt_enable_srv_name = '/cyborg/bt/enable'
-        rospy.Service(bt_enable_srv_name, Trigger, self._enable_cb)
-
-        bt_disable_srv_name = '/cyborg/bt/disable'
-        rospy.Service(bt_disable_srv_name, Trigger, self._disable_cb)
+        rospy.Service(bt_enable_srv_name, SetBool, self._enable_cb)
 
         names = {'MoveTo': MoveTo}
 
@@ -88,18 +85,12 @@ class BehaviorTreeManager():
         return self._dot
 
     def _enable_cb(self, msg):
-        rospy.loginfo("Behavior tree enabled")
-
-        self.enabled = True
+        self.enabled = msg.data
         self._publish_bt_status()
-        return TriggerResponse(success=1, message="enabled")
 
-    def _disable_cb(self, msg):
-        rospy.loginfo("Behavior tree disabled")
-
-        self.enabled = False
-        self._publish_bt_status()
-        return TriggerResponse(success=1, message="disabled")
+        message = "enabled" if self.enabled else "disabled"
+        rospy.loginfo("Behavior tree {}".format(message))
+        return SetBoolResponse(success=1, message=message)
 
     def _publish_bt(self, data):
         """
