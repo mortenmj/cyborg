@@ -24,7 +24,7 @@ class MoveTo(b3.Action):
         except:
             rospy.logerr('Timed out waiting for move_base')
 
-        srv_name = '/cyborg/nav/distance_to_goal'
+        srv_name = '/cyborg/nav/get_distance_to_goal'
         try:
             self._dist_svc = rospy.ServiceProxy(srv_name, DistanceToGoal)
         except rospy.ServiceException as e:
@@ -35,6 +35,7 @@ class MoveTo(b3.Action):
         self._target_location = location
         self._target_radius = radius
         self._target_distance = float('Inf')
+        self._timeout_counter = None
 
     def __str__(self):
         return 'MoveTo <%s>' % self._target_location
@@ -51,6 +52,9 @@ class MoveTo(b3.Action):
             self._req.target_pose.header.stamp = rospy.Time.now()
             self._req.target_pose.pose = pose
 
+        self._target_distance = float('Inf')
+        self._timeout_counter = rospy.Timer(rospy.Duration(10), self._timeout)
+
         self._cli.send_goal(
                 self._req,
                 done_cb=self._done_cb,
@@ -60,11 +64,11 @@ class MoveTo(b3.Action):
     def _stop(self):
         self._cli.cancel_goal()
 
+    def _timeout(self, event):
+        self._stop()
+
     # Called before the tick callback, if not closed
     def open(self, tick):
-        # Set start time, so we can time out if necessary
-        tick.blackboard.set('start_time', rospy.Time.now(), tick.tree.id, self.id)
-
         # Cancel all existing goals
         self._cli.cancel_all_goals()
 
@@ -77,14 +81,6 @@ class MoveTo(b3.Action):
 
     # Contains the execution code for this node
     def tick(self, tick):
-        start_time = tick.blackboard.get('start_time', tick.tree.id, self.id)
-        elapsed_time = rospy.Time.now() - start_time
-
-        # Abort if too much time has passed since we got nearer to the target
-        if elapsed_time > tick.blackboard.get('max_time', tick.tree.id, self.id):
-            self._status = b3.FAILURE
-            return self._status
-
         if not self._action_finished:
             self._status = b3.RUNNING
         else:
@@ -115,8 +111,15 @@ class MoveTo(b3.Action):
 
         # Check if we've made progress towards our target
         # Restart the counter if we have
-        if self._target_distance > self._dist_svc(cur_pos.position).distance:
-            tick.blackboard.set('start_time', rospy.Time.now(), tick.tree.id, self.id)
+        target_pos = self._req.target_pose.pose
+        distance = self._dist_svc(target_pos).distance
+        if self._target_distance > distance:
+            self._target_distance = distance
+
+            rospy.loginfo("Progress made. New distance: %d" % self._target_distance)
+
+            self._timeout_counter.shutdown()
+            self._timeout_counter = rospy.Timer(rospy.Duration(15), self._timeout)
 
     def _done_cb(self, result_state, result):
         # We might have already set _goal_status to SUCCEEDED
@@ -125,6 +128,8 @@ class MoveTo(b3.Action):
             self._goal_status = result_state
 
         self._action_finished = True
+
+        self._timeout_counter.shutdown()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import rospy
-from cyborg_nav.srv import AvailableGoals
+from cyborg_msgs.srv import AvailableGoals
 from cyborg_types import Point, Quaternion, Pose
 
 

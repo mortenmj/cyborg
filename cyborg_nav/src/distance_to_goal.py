@@ -36,6 +36,8 @@ class DistanceToGoalHandler():
         # Calculate distance if a path was found, or return inf
         distance = path.length if path else float('inf')
 
+        rospy.loginfo(path.length)
+
         return DistanceToGoalResponse(distance=distance)
 
 
